@@ -11,7 +11,7 @@ public class Program
 {
     private static readonly JsonWebTokenHandler JsonWebTokenHandler = new JsonWebTokenHandler();
     private static readonly SemaphoreSlim LockWellKnown = new SemaphoreSlim(1, 1);
-    private static RSAParameters? LoadedRsaParameters;
+    private static ECParameters? LoadedRsaParameters;
     private static readonly JsonSerializerOptions WebOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
     private static readonly HttpClient Client = new HttpClient();
 
@@ -68,12 +68,15 @@ public class Program
 
         var state = GenerateState(ctx);
 
-        ctx.Response.Redirect("https://dev-x280oizjlvec4psm.us.auth0.com/authorize?client_id=pdYYa1ECzOcolXJGoH9urgxyRDkPras6" +
-                              "&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A7000%2Fcallback" +
-                              $"&code_challenge={challenge}&code_challenge_method=S256" +
+        ctx.Response.Redirect("https://h27yg1.logto.app/oidc/auth" +
+                              "?client_id=hkr1jjnvjk341lk6ud7s9" +
+                              "&redirect_uri=http%3A%2F%2Flocalhost%3A7000%2Fcallback" +
+                              $"&code_challenge={challenge}" +
+                              "&code_challenge_method=S256" +
                               "&scope=openid%20profile%20offline_access" +
-                              "&audience=http%3A%2F%2Flocalhost%3A7000" +
-                              $"&state={state}");
+                              $"&state={state}" +
+                              "&response_type=code" +
+                              "&prompt=consent"); // this is vital and undocumented for logto, need to pass prompt consent for offline access
 
         // Failing to provide audience in this call returns an invalid/empty access_token
         // but it doesn't really seem to be documented anywhere.
@@ -115,7 +118,8 @@ public class Program
 
         var parsed = JsonSerializer.Deserialize<Auth0JwtTokensResponse>(token, WebOptions);
 
-        var isValid = await ValidateJwt(parsed!);
+        // logto returns a "nonsense" invalid non-JWT access token
+        var isValid = await ValidateJwt(parsed!.IdToken);
 
         if (!isValid)
         {
@@ -147,7 +151,7 @@ public class Program
     /// Parameters for validating the access token JWT are available on the Auth0 well known endpoint for our tenant.
     /// Load them once then cache.
     /// </summary>
-    private static async Task<RSAParameters> LoadRsaParameters()
+    private static async Task<ECParameters> LoadRsaParameters()
     {
         if (LoadedRsaParameters.HasValue)
         {
@@ -164,17 +168,19 @@ public class Program
             }
 
             // https://community.auth0.com/t/where-is-the-auth0-public-key-to-be-used-in-jwt-io-to-verify-the-signature-of-a-rs256-token/8455
-            using var request = new HttpRequestMessage(HttpMethod.Get, "https://dev-x280oizjlvec4psm.us.auth0.com/.well-known/jwks.json");
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://h27yg1.logto.app/oidc/jwks");
 
             var response = await Client.SendAsync(request);
 
-            var wellKnown = await response.Content.ReadFromJsonAsync<Auth0JwtWellKnownResponse<RsaSigningKey>>(WebOptions);
+            var wellKnown = await response.Content.ReadFromJsonAsync<Auth0JwtWellKnownResponse<EcSigningKey>>(WebOptions);
 
-            var parameters = new RSAParameters
+            var parameters = new ECParameters
             {
-                Modulus = Base64UrlEncoder.DecodeBytes(wellKnown!.Keys[0].Modulus),
-                Exponent = Base64UrlEncoder.DecodeBytes(wellKnown.Keys[0].Exponent)
-            };
+                Curve = ECCurve.NamedCurves.nistP384,
+                Q = new ECPoint{
+                X = Base64UrlEncoder.DecodeBytes(wellKnown!.Keys[0].X),
+                Y = Base64UrlEncoder.DecodeBytes(wellKnown.Keys[0].Y)
+                }};
 
             LoadedRsaParameters = parameters;
 
@@ -249,13 +255,13 @@ public class Program
     {
         using var requestmessage = new HttpRequestMessage(
             HttpMethod.Post,
-            "https://dev-x280oizjlvec4psm.us.auth0.com/oauth/token");
+            "https://h27yg1.logto.app/oidc/token");
 
         requestmessage.Content = new FormUrlEncodedContent(
             new Dictionary<string, string>
             {
                 { "grant_type", "authorization_code" },
-                { "client_id", "pdYYa1ECzOcolXJGoH9urgxyRDkPras6" },
+                { "client_id", "hkr1jjnvjk341lk6ud7s9" },
                 { "code_verifier", challengerVerifier },
                 { "code", code },
                 { "redirect_uri", "http://localhost:7000/callback" }
@@ -273,27 +279,24 @@ public class Program
     /// <summary>
     /// Validate the returned JWT including audience, issuer and signing key (RSA 256 for Auth0).
     /// </summary>
-    private static async Task<bool> ValidateJwt(Auth0JwtTokensResponse response)
+    private static async Task<bool> ValidateJwt(string jwt)
     {
         var parameters = await LoadRsaParameters();
 
-        var rsa = new RSACryptoServiceProvider();
-        rsa.ImportParameters(parameters);
-
         var validationParameters = new TokenValidationParameters
         {
-            ValidAudience = "http://localhost:7000",
-            ValidAlgorithms = new[] { "RS256" },
-            ValidIssuers = new[] { "https://dev-x280oizjlvec4psm.us.auth0.com/" },
+            ValidAudiences = new []{  "hkr1jjnvjk341lk6ud7s9" },
+            ValidAlgorithms = new[] { "ES384" },
+            ValidIssuers = new[] { "https://h27yg1.logto.app/oidc" },
             RequireExpirationTime = true,
             RequireSignedTokens = true,
             ValidateAudience = true,
             ValidateIssuer = true,
             ValidateLifetime = true,
-            IssuerSigningKey = new RsaSecurityKey(rsa)
+            IssuerSigningKey = new ECDsaSecurityKey(ECDsa.Create(parameters))
         };
 
-        var r = await JsonWebTokenHandler.ValidateTokenAsync(response.AccessToken, validationParameters);
+        var r = await JsonWebTokenHandler.ValidateTokenAsync(jwt, validationParameters);
 
         return r.IsValid;
     }
