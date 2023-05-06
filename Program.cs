@@ -71,7 +71,7 @@ public class Program
         ctx.Response.Redirect("https://dev-x280oizjlvec4psm.us.auth0.com/authorize?client_id=pdYYa1ECzOcolXJGoH9urgxyRDkPras6" +
                               "&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A7000%2Fcallback" +
                               $"&code_challenge={challenge}&code_challenge_method=S256" +
-                              "&scope=openid%20profile" +
+                              "&scope=openid%20profile%20offline_access" +
                               "&audience=http%3A%2F%2Flocalhost%3A7000" +
                               $"&state={state}");
 
@@ -123,6 +123,16 @@ public class Program
         }
 
         ctx.Response.Cookies.Append("idtok", parsed!.IdToken, new CookieOptions
+        {
+            SameSite = SameSiteMode.Lax,
+            HttpOnly = false
+        });
+        ctx.Response.Cookies.Append("acctok", parsed.AccessToken, new CookieOptions
+        {
+            SameSite = SameSiteMode.Lax,
+            HttpOnly = false
+        });
+        ctx.Response.Cookies.Append("reftok", parsed.RefreshToken, new CookieOptions
         {
             SameSite = SameSiteMode.Lax,
             HttpOnly = false
@@ -279,7 +289,7 @@ public class Program
             RequireSignedTokens = true,
             ValidateAudience = true,
             ValidateIssuer = true,
-            ValidateLifetime = false,
+            ValidateLifetime = true,
             IssuerSigningKey = new RsaSecurityKey(rsa)
         };
 

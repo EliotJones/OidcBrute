@@ -10,6 +10,9 @@ public class Auth0JwtTokensResponse
     [JsonPropertyName("id_token")]
     public string IdToken { get; set; } = string.Empty;
 
+    [JsonPropertyName("refresh_token")]
+    public string RefreshToken { get; set; } = string.Empty;
+
     [JsonPropertyName("expires_in")]
     public long ExpiresIn { get; set; }
 
