@@ -59,13 +59,21 @@ public class Program
     {
         var (verifier, challenge) = GenerateCodes();
 
-        ctx.Response.Cookies.Append("ver", verifier);
+        ctx.Response.Cookies.Append("ver", verifier, new CookieOptions
+        {
+            SameSite = SameSiteMode.Lax,
+            // Secure = true, < we're working in localhost currently with no HTTPS configured
+            HttpOnly = true
+        });
+
+        var state = GenerateState(ctx);
 
         ctx.Response.Redirect("https://dev-x280oizjlvec4psm.us.auth0.com/authorize?client_id=pdYYa1ECzOcolXJGoH9urgxyRDkPras6" +
                               "&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A7000%2Fcallback" +
                               $"&code_challenge={challenge}&code_challenge_method=S256" +
                               "&scope=openid%20profile" +
-                              "&audience=http%3A%2F%2Flocalhost%3A7000");
+                              "&audience=http%3A%2F%2Flocalhost%3A7000" +
+                              $"&state={state}");
 
         // Failing to provide audience in this call returns an invalid/empty access_token
         // but it doesn't really seem to be documented anywhere.
@@ -83,6 +91,26 @@ public class Program
             return Results.BadRequest("No verification cookie on client.");
         }
 
+        if (!ctx.Request.Cookies.TryGetValue("idp-state", out var state)
+            || state != ctx.Request.Query["state"])
+        {
+            return Results.BadRequest("State mismatch!");
+        }
+
+        var querystring = string.Empty;
+        if (ctx.Request.Cookies.TryGetValue(state, out var jsonPayload)
+            && !string.IsNullOrWhiteSpace(jsonPayload))
+        {
+            var item = JsonSerializer.Deserialize<JsonPayloadForState>(jsonPayload, WebOptions);
+
+            querystring = item?.Query ?? string.Empty;
+
+            ctx.Response.Cookies.Delete(state);
+        }
+
+        ctx.Response.Cookies.Delete("ver");
+        ctx.Response.Cookies.Delete("idp-state");
+
         var token = await SwapCodeForToken(code, codever!);
 
         var parsed = JsonSerializer.Deserialize<Auth0JwtTokensResponse>(token, WebOptions);
@@ -94,7 +122,11 @@ public class Program
             return Results.BadRequest("You smell of elderberries.");
         }
 
-        ctx.Response.Cookies.Append("idtok", parsed!.IdToken);
+        ctx.Response.Cookies.Append("idtok", parsed!.IdToken, new CookieOptions
+        {
+            SameSite = SameSiteMode.Lax,
+            HttpOnly = false
+        });
 
         ctx.Response.Redirect("/loggedin");
 
@@ -142,6 +174,40 @@ public class Program
         {
             LockWellKnown.Release();
         }
+    }
+
+    private static string GenerateState(HttpContext ctx)
+    {
+        var query = ctx.Request.QueryString.ToUriComponent();
+
+        var stateRaw = RandomNumberGenerator.GetBytes(32);
+
+        var stateUrlSafe = B64Url(Convert.ToBase64String(stateRaw));
+
+        // If stored in a cookie, it should be signed to prevent forgery. Not done in this example.
+        ctx.Response.Cookies.Append(
+            stateUrlSafe,
+            JsonSerializer.Serialize(new JsonPayloadForState
+            {
+                Query = query
+            }),
+            new CookieOptions
+            {
+                SameSite = SameSiteMode.Lax,
+                // Secure = true, < we're working in localhost currently with no HTTPS configured
+                HttpOnly = true
+            });
+        ctx.Response.Cookies.Append(
+            "idp-state",
+            stateUrlSafe,
+            new CookieOptions
+            {
+                // Secure = true,
+                SameSite = SameSiteMode.Lax,
+                HttpOnly = true
+            });
+
+        return stateUrlSafe;
     }
 
     /// <summary>
@@ -229,4 +295,9 @@ public class Program
         => s.Replace("=", string.Empty)
             .Replace('+', '-')
             .Replace('/', '_');
+}
+
+public class JsonPayloadForState
+{
+    public string? Query { get; set; }
 }
