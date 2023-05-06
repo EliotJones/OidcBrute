@@ -22,12 +22,19 @@ public class Auth0JwtTokensResponse
     public string TokenType { get; set; } = string.Empty;
 }
 
-public class Auth0JwtWellKnownResponse
+public class Auth0JwtWellKnownResponse<TKey>
 {
-    public SigningKey[] Keys { get; set; } = Array.Empty<SigningKey>();
+    public TKey[] Keys { get; set; } = Array.Empty<TKey>();
 }
 
-public class SigningKey
+public class EcSigningKey
+{
+    public string X { get; set; } = string.Empty;
+
+    public string Y { get; set; } = string.Empty;
+}
+
+public class RsaSigningKey
 {
     [JsonPropertyName("alg")]
     public string Algoritm { get; set; } = string.Empty;

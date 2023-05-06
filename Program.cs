@@ -168,7 +168,7 @@ public class Program
 
             var response = await Client.SendAsync(request);
 
-            var wellKnown = await response.Content.ReadFromJsonAsync<Auth0JwtWellKnownResponse>(WebOptions);
+            var wellKnown = await response.Content.ReadFromJsonAsync<Auth0JwtWellKnownResponse<RsaSigningKey>>(WebOptions);
 
             var parameters = new RSAParameters
             {
