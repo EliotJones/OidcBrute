@@ -76,6 +76,7 @@ public class Program
                               "&scope=openid%20profile%20offline_access" +
                               $"&state={state}" +
                               "&response_type=code" +
+                              "&resource=http%3A%2F%2Flocalhost%3A7000" + // rather than audience logto uses resource, must be present on both auth and token call
                               "&prompt=consent"); // this is vital and undocumented for logto, need to pass prompt consent for offline access
 
         // Failing to provide audience in this call returns an invalid/empty access_token
@@ -264,7 +265,8 @@ public class Program
                 { "client_id", "hkr1jjnvjk341lk6ud7s9" },
                 { "code_verifier", challengerVerifier },
                 { "code", code },
-                { "redirect_uri", "http://localhost:7000/callback" }
+                { "redirect_uri", "http://localhost:7000/callback" },
+                { "resource", "http://localhost:7000"}
             });
 
         requestmessage.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
